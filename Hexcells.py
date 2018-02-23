@@ -101,6 +101,7 @@ class Board:
         while not self.solved():
             for k, val in constraints.items():
                 for v in val:
+                    print(str(self))
                     if k.unknown:
                         if v.value.number - v.num_solved() == 0:
                             k.unknown = False
@@ -143,17 +144,19 @@ class Board:
                                         (not between and blackLeft) or (not between and blackRight):
                                     k.unknown = False
                                     self.numUnknown -= 1
-                                print(str(self))
                         elif v.value.type == Hex.Type.APART:
                             locs = v.get_solved_locations()
                             if len(locs) == v.value.number - 1:
                                 together = True
                                 prev = locs[0]
+                                # need to account for [0, 5] case
                                 for i in locs[1:]:
                                     if i != prev + 1:
                                         together = False
                                         break
+                                    prev = i
                                 if together:
+                                    # indexing error
                                     if (locs[0] == 0 and v.items[-1] == k) or v.items[locs[0] - 1] == k or \
                                             (locs[-1] == len(v.items) - 1 and v.items[0] == k) or v.items[locs[-1] + 1]:
                                         k.unknown = False
@@ -185,20 +188,17 @@ class Board:
         return self.get_constraints()
 
     def parse_input(self):
-        f = open('input.txt', 'r')
+        f = open('input4.txt', 'r')
         file = f.read()
         data = file.split('+')
         lines = data[0].split('\n')
-        splitLines = list(map(lambda l: list(l), lines))
+        splitLines = list(map(lambda l: l.split(' '), lines))
         for line in splitLines:
-            remove = []
-            for i, c in enumerate(line):
-                if c == Hex.Type.SECRET.value or c == Hex.Type.ADJ.value or c == Hex.Type.APART.value:
-                    line[i] = c + line[i + 1]
-                    remove.append(i + 1)
-            remove.reverse()
-            for i in remove:
-                line.pop(i)
+            for i in range(len(line) - 1, -1, -1):
+                if line[i] == '':
+                    line[i] = ' '
+                else:
+                    line.insert(i + 1, ' ')
         parseLines = list(map(lambda l: self.make_hexes(l), splitLines))
         maxLength = len(max(parseLines, key=lambda l: len(l)))
         for line in parseLines:

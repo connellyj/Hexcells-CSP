@@ -96,6 +96,42 @@ class Board:
             board += reduce(lambda a, b: str(a) + str(b), line) + '\n'
         return board
 
+    def get_adj_bounds(self, leftmost, rightmost, constraint, wrap):
+        n = constraint.num_solved()
+        if wrap:
+            right = (rightmost + constraint.value.number - n) % len(constraint.items)
+            left = leftmost - constraint.value.number + n
+            if left < 0:
+                left = len(constraint.items) - abs(left)
+            return left, right
+        else:
+            pass
+
+    def get_hexes_between(self, left, right, index, constraint, wrap):
+        betweenRight = []
+        betweenLeft = []
+        if wrap:
+            if left > index:
+                betweenLeft = constraint.items[index + 1:left + 1]
+            elif left < index:
+                betweenLeft = constraint.items[index + 1:] + constraint.items[:left + 1]
+            if right > index:
+                betweenRight = constraint.items[right:] + constraint.items[:index]
+            elif right < index:
+                betweenRight = constraint.items[right:index]
+            return betweenLeft, betweenRight
+        else:
+            pass
+
+    def out_of_range(self, left, right, index, wrap):
+        if wrap:
+            if left < right:
+                return index > right or index < left
+            else:
+                return right < index < left
+        else:
+            pass
+
     def solve(self):
         constraints = self.get_constraints()
         while not self.solved():
@@ -113,52 +149,44 @@ class Board:
                             if v.num_solved() > 0:
                                 locs = v.get_solved_locations()
                                 index = v.items.index(k)
-                                right = (locs[-1] + v.value.number - len(locs)) % len(v.items)
-                                left = locs[0] - v.value.number + len(locs)
-                                if left < 0:
-                                    left = len(v.items) - abs(left)
-                                betweenRight = []
-                                betweenLeft = []
-                                if left > index:
-                                    betweenLeft = v.items[index + 1:left + 1]
-                                elif left < index:
-                                    betweenLeft = v.items[index + 1:] + v.items[:left + 1]
-                                if right > index:
-                                    betweenRight = v.items[right:] + v.items[:index]
-                                elif right < index:
-                                    betweenRight = v.items[right:index]
+                                left, right = self.get_adj_bounds(locs[0], locs[-1], v, True)
                                 # is there a black hex between this hex and the solved ones?
+                                betweenLeft, betweenRight = self.get_hexes_between(left, right, index, v, True)
                                 blackLeft = len([h for h in betweenLeft if h.is_black()]) > 0
                                 blackRight = len([h for h in betweenRight if h.is_black()]) > 0
                                 # is this hex too far away to be a part of the solved group?
-                                if left < right:
-                                    dist = index > right or index < left
-                                else:
-                                    dist = right < index < left
+                                dist = self.out_of_range(left, right, index, True)
                                 # add case where one side has black and other is too far
-                                if left > right:
-                                    between = index <= right or index >= left
-                                else:
-                                    between = left <= index <= right
-                                if dist or (blackLeft and blackRight) or \
-                                        (not between and blackLeft) or (not between and blackRight):
+                                between = self.out_of_range(right, left, index, True)
+                                # if left > right:
+                                #     between = index <= right or index >= left
+                                # else:
+                                #     between = left <= index <= right
+                                if dist or (not between and blackLeft) or (not between and blackRight):
+                                    print(str(index))
+                                    print(str(left))
+                                    print(str(right))
+                                    print(reduce(lambda a, b: str(a) + ' ' + str(b), betweenRight))
+                                    print(str(dist) + ' ' + str(not between and blackLeft) + ' ' + str(not between and blackRight))
                                     k.unknown = False
                                     self.numUnknown -= 1
                         elif v.value.type == Hex.Type.APART:
                             locs = v.get_solved_locations()
                             if len(locs) == v.value.number - 1:
-                                together = True
-                                prev = locs[0]
-                                # need to account for [0, 5] case
-                                for i in locs[1:]:
-                                    if i != prev + 1:
-                                        together = False
-                                        break
-                                    prev = i
+                                together = locs[-1] == locs[0] + v.value.number - 2
+                                if not together and locs[0] == 0:
+                                    prev = locs[0]
+                                    index = 0
+                                    for i in locs[1:]:
+                                        if i != prev + 1:
+                                            break
+                                        prev = i
+                                        index += 1
+                                    together = locs[index + 1] == len(v.items) - (v.value.number - 1 - (index + 1))
                                 if together:
-                                    # indexing error
                                     if (locs[0] == 0 and v.items[-1] == k) or v.items[locs[0] - 1] == k or \
-                                            (locs[-1] == len(v.items) - 1 and v.items[0] == k) or v.items[locs[-1] + 1]:
+                                            (locs[-1] == len(v.items) - 1 and v.items[0] == k) or \
+                                            v.items[(locs[-1] + 1) % len(v.items)]:
                                         k.unknown = False
                                         self.numUnknown -= 1
             constraints = self.recalculate_constraints()
@@ -188,7 +216,7 @@ class Board:
         return self.get_constraints()
 
     def parse_input(self):
-        f = open('input4.txt', 'r')
+        f = open('input3.txt', 'r')
         file = f.read()
         data = file.split('+')
         lines = data[0].split('\n')

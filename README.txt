@@ -1,1 +1,1 @@
-Run constraint.py. It will output 7 unsolved/solved pairs of boards. The first 4  and the last are correct, the 5th is not.
+Run Hexcells.py. It will output 7 unsolved/solved pairs of boards. The first 4  and the last are correct, the 5th is not.

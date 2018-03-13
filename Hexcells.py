@@ -6,10 +6,14 @@ import collections
 
 class Hex:
     def __init__(self, typeString):
+        self.index = None
         self.unknown = False
         self.type, self.number = self.parseTypeString(typeString)
+        self.error = False
 
     def __str__(self):
+        if self.error:
+            return '?'
         if self.unknown:
             return Hex.Type.GOLD.value
         if self.is_num():
@@ -68,9 +72,10 @@ class Hex:
 
 
 class Grouping:
-    def __init__(self, items, value):
+    def __init__(self, items, value, wrap):
         self.items = items
         self.value = value
+        self.wrap = wrap
 
     def num_unsolved(self):
         return len([h for h in self.items if h.unknown])
@@ -81,14 +86,28 @@ class Grouping:
     def get_solved_locations(self):
         return [i for i, h in enumerate(self.items) if h.type == Hex.Type.BLUE and not h.unknown]
 
+    def is_adjacent_to_solved(self, index):
+        locs = self.get_solved_locations()
+        if locs:
+            if self.wrap:
+                lowCompare = locs[0] - 1 if locs[0] != 0 else len(self.items) - 1
+                highCompare = locs[-1] + 1 % len(self.items)
+                return index == lowCompare or index == highCompare
+            else:
+                return index == locs[0] - 1 or index == locs[-1] + 1
+        return True
+
     def __str__(self):
         return 'val: ' + str(self.value.number) + ' items: ' + reduce(lambda a, b: str(a) + str(b), self.items)
 
 
 class Board:
+    DIAG = 0
+    COL = 1
+
     def __init__(self):
         self.numUnknown = 0
-        self.columns, self.diags, self.areas = self.parse_input()
+        self.columns, self.diags, self.lineConstraints, self.areas = self.parse_input()
 
     def __str__(self):
         board = ''
@@ -97,22 +116,25 @@ class Board:
         return board
 
     @staticmethod
-    def get_adj_bounds(leftmost, rightmost, constraint, wrap):
+    def get_adj_bounds(leftmost, rightmost, constraint):
         n = constraint.num_solved()
-        if wrap:
+        if constraint.wrap:
             right = (rightmost + constraint.value.number - n) % len(constraint.items)
             left = leftmost - constraint.value.number + n
             if left < 0:
                 left = len(constraint.items) - abs(left)
-            return left, right
         else:
-            pass
+            right = rightmost + constraint.value.number - n
+            right = len(constraint.items) - 1 if right > len(constraint.items) - 1 else right
+            left = leftmost - constraint.value.number + n
+            left = 0 if left < 0 else left
+        return left, right
 
     @staticmethod
-    def get_hexes_between(left, right, index, constraint, wrap):
+    def get_hexes_between(left, right, index, constraint):
         betweenRight = []
         betweenLeft = []
-        if wrap:
+        if constraint.wrap:
             if left > index:
                 betweenLeft = constraint.items[index + 1:left]
             elif left < index:
@@ -121,9 +143,12 @@ class Board:
                 betweenRight = constraint.items[right + 1:] + constraint.items[:index]
             elif right < index:
                 betweenRight = constraint.items[right + 1:index]
-            return betweenLeft, betweenRight
         else:
-            pass
+            if left > index:
+                betweenLeft = constraint.items[index + 1:left]
+            elif right < index:
+                betweenRight = constraint.items[right + 1:index]
+        return betweenLeft, betweenRight
 
     @staticmethod
     def out_of_range(left, right, index, wrap):
@@ -133,12 +158,14 @@ class Board:
             else:
                 return right < index < left
         else:
-            pass
+            return left > index < right or index > right
 
     @staticmethod
-    def is_continuous(locs, constraint, wrap):
+    def is_continuous(locs, constraint):
+        if not locs:
+            return False
         together = locs[-1] == locs[0] + constraint.value.number - 2
-        if wrap and not together and locs[0] == 0:
+        if constraint.wrap and not together and locs[0] == 0:
             prev = locs[0]
             index = 0
             for i in locs[1:]:
@@ -149,49 +176,132 @@ class Board:
             together = locs[index + 1] == len(constraint.items) - (constraint.value.number - 1 - (index + 1))
         return together
 
-    def solve(self):
+    def solve_basic_constraints(self):
         constraints = self.get_constraints()
         while not self.solved():
+            changeMade = False
             for k, val in constraints.items():
                 for v in val:
                     if k.unknown:
                         if v.value.number - v.num_solved() == 0:
                             k.unknown = False
+                            changeMade = True
                             self.numUnknown -= 1
                         elif v.value.number - v.num_solved() == v.num_unsolved():
                             k.unknown = False
+                            changeMade = True
                             self.numUnknown -= 1
                         elif v.value.type == Hex.Type.ADJ:
                             if v.num_solved() > 0:
                                 locs = v.get_solved_locations()
                                 index = v.items.index(k)
                                 # is this hex too far away to be a part of the solved group?
-                                left, right = Board.get_adj_bounds(locs[0], locs[-1], v, True)
-                                dist = Board.out_of_range(left, right, index, True)
+                                left, right = Board.get_adj_bounds(locs[0], locs[-1], v)
+                                dist = Board.out_of_range(left, right, index, v.value.wrap)
                                 # is there a black hex between this hex and the solved ones?
-                                betweenLeft, betweenRight = Board.get_hexes_between(locs[0], locs[-1], index, v, True)
+                                betweenLeft, betweenRight = Board.get_hexes_between(locs[0], locs[-1], index, v)
                                 blackLeft = len([h for h in betweenLeft if h.is_black()]) > 0
                                 blackRight = len([h for h in betweenRight if h.is_black()]) > 0
                                 distRight = Board.out_of_range(
-                                    right, len(v.items) - 1 if left - 1 < 0 else left - 1, index, True
+                                    right, len(v.items) - 1 if left - 1 < 0 else left - 1, index, v.wrap
                                 )
                                 distLeft = Board.out_of_range(
-                                    right + 1 % len(v.items), left, index, True
+                                    right + 1 % len(v.items), left, index, v.wrap
                                 )
                                 if dist or (not distLeft and blackLeft) or (not distRight and blackRight):
                                     k.unknown = False
+                                    changeMade = True
+                                    if not k.is_black():
+                                        print("ERROR! Adjacent solved incorrectly.")
+                                        k.error = True
                                     self.numUnknown -= 1
                         elif v.value.type == Hex.Type.APART:
                             locs = v.get_solved_locations()
                             if len(locs) == v.value.number - 1:
-                                together = Board.is_continuous(locs, v, True)
+                                together = Board.is_continuous(locs, v)
                                 if together:
                                     if (locs[0] == 0 and v.items[-1] == k) or v.items[locs[0] - 1] == k or \
                                             (locs[-1] == len(v.items) - 1 and v.items[0] == k) or \
-                                            v.items[(locs[-1] + 1) % len(v.items)]:
+                                            v.items[(locs[-1] + 1) % len(v.items)] == k:
                                         k.unknown = False
+                                        changeMade = True
+                                        if not k.is_black():
+                                            print("ERROR! Apart solved incorrectly.")
+                                            k.error = True
                                         self.numUnknown -= 1
+            if not changeMade:
+                return
             constraints = self.recalculate_constraints()
+
+    def get_unsolved_hex(self, alreadyGuessed):
+        for i in range(len(self.columns)):
+            for j in range(len(self.columns[i])):
+                cur = self.columns[i][j]
+                if cur.unknown and cur not in alreadyGuessed:
+                    cur.index = (i, j)
+                    return cur
+        return None
+
+    def solve_search(self):
+        constraints = self.get_constraints()
+        BLACK = 0
+        BLUE = 1
+        nextToGuess = self.get_unsolved_hex([])
+        frontier = [
+            {nextToGuess: BLUE},
+            {nextToGuess: BLACK}
+        ]
+        visited = []
+        while frontier:
+            cur = frontier.pop(0)
+            visited.append(cur)
+            nextToGuess = self.get_unsolved_hex(list(cur.keys()))
+            if not nextToGuess:
+                for k, val in cur.items():
+                    h = self.columns[k.index[0]][k.index[1]]
+                    h.type = Hex.Type.BLUE if val == BLUE else Hex.Type.QUESTION
+                    h.unknown = False
+                return
+            blueValid = True
+            blackValid = True
+            for g in constraints[nextToGuess]:
+                numSolved = g.num_solved()
+                numUnsolved = g.num_unsolved()
+                for h in g.items:
+                    if h in cur.keys():
+                        numUnsolved -= 1
+                        if cur[h] == BLUE:
+                            numSolved += 1
+                if g.value.number - numSolved == numUnsolved:
+                    blackValid = False
+                if g.value.number == numSolved:
+                    blueValid = False
+                if blueValid and g.value.type == Hex.Type.ADJ:
+                    index = g.items.index(nextToGuess)
+                    if not g.is_adjacent_to_solved(index):
+                        blueValid = False
+                if blueValid and g.value.type == Hex.Type.APART:
+                    locs = g.get_solved_locations()
+                    continuous = Board.is_continuous(locs, g)
+                    if locs and continuous:
+                        index = g.items.index(nextToGuess)
+                        if g.is_adjacent_to_solved(index):
+                            blueValid = False
+            if blueValid:
+                blue = cur.copy()
+                blue[nextToGuess] = BLUE
+                if blue not in visited:
+                    frontier.insert(0, blue)
+            if blackValid:
+                black = cur.copy()
+                black[nextToGuess] = BLACK
+                if black not in visited:
+                    frontier.insert(0, black)
+
+    def solve(self):
+        self.solve_basic_constraints()
+        if not self.solved():
+            self.solve_search()
 
     def solved(self):
         return self.numUnknown == 0
@@ -214,11 +324,11 @@ class Board:
         return constraints
 
     def recalculate_constraints(self):
-        self.areas = Board.get_areas(self.columns)
+        self.areas = Board.get_areas(self.columns, self.diags, self.lineConstraints)
         return self.get_constraints()
 
     def parse_input(self):
-        f = open('input4.txt', 'r')
+        f = open('input5.txt', 'r')
         file = f.read()
         data = file.split('+')
         lines = data[0].split('\n')
@@ -234,7 +344,17 @@ class Board:
         for line in parseLines:
             while len(line) < maxLength:
                 line.append(Hex(' '))
-        return parseLines, Board.get_diagonals(parseLines), Board.get_areas(parseLines)
+        lineConstraints = []
+        for lC in data[1:]:
+            lines = lC.split('\n')
+            constraints = {}
+            for c in lines:
+                if c != '':
+                    splitLine = c.split(' ')
+                    constraints[int(splitLine[0])] = Hex(splitLine[1])
+            lineConstraints.append(constraints)
+        diagonals = Board.get_diagonals(parseLines)
+        return parseLines, diagonals, lineConstraints, Board.get_areas(parseLines, diagonals, lineConstraints)
 
     @staticmethod
     def get_neighbors(col, row, columns):
@@ -256,12 +376,16 @@ class Board:
         return neighbors
 
     @staticmethod
-    def get_areas(columns):
+    def get_areas(columns, diagonals, lineConstraints):
         areas = []
         for i, c in enumerate(columns):
             for j, h in enumerate(c):
                 if h.is_num():
-                    areas.append(Grouping(Board.get_neighbors(i, j, columns), h))
+                    areas.append(Grouping(Board.get_neighbors(i, j, columns), h, True))
+        for i, constraints in enumerate(lineConstraints):
+            lines = columns if i == Board.COL else diagonals
+            for k in list(constraints.keys()):
+                areas.append(Grouping(lines[k], constraints[k], False))
         return areas
 
     @staticmethod

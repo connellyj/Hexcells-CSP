@@ -105,9 +105,9 @@ class Board:
     DIAG = 0
     COL = 1
 
-    def __init__(self):
+    def __init__(self, fileName):
         self.numUnknown = 0
-        self.columns, self.diags, self.lineConstraints, self.areas = self.parse_input()
+        self.columns, self.diags, self.lineConstraints, self.areas = self.parse_input(fileName)
 
     def __str__(self):
         board = ''
@@ -173,7 +173,7 @@ class Board:
                     break
                 prev = i
                 index += 1
-            together = locs[index + 1] == len(constraint.items) - (constraint.value.number - 1 - (index + 1))
+            together = locs[index] == len(constraint.items) - (constraint.value.number - 1 - (index + 1))
         return together
 
     def solve_basic_constraints(self):
@@ -197,7 +197,7 @@ class Board:
                                 index = v.items.index(k)
                                 # is this hex too far away to be a part of the solved group?
                                 left, right = Board.get_adj_bounds(locs[0], locs[-1], v)
-                                dist = Board.out_of_range(left, right, index, v.value.wrap)
+                                dist = Board.out_of_range(left, right, index, v.wrap)
                                 # is there a black hex between this hex and the solved ones?
                                 betweenLeft, betweenRight = Board.get_hexes_between(locs[0], locs[-1], index, v)
                                 blackLeft = len([h for h in betweenLeft if h.is_black()]) > 0
@@ -327,8 +327,8 @@ class Board:
         self.areas = Board.get_areas(self.columns, self.diags, self.lineConstraints)
         return self.get_constraints()
 
-    def parse_input(self):
-        f = open('input5.txt', 'r')
+    def parse_input(self, fileName):
+        f = open(fileName, 'r')
         file = f.read()
         data = file.split('+')
         lines = data[0].split('\n')
@@ -399,9 +399,15 @@ class Board:
 
 
 def main():
-    b = Board()
-    b.solve()
-    print(str(b))
+    for i in range(1, 7):
+        b = Board('input' + str(i) + '.txt')
+        print('unsolved')
+        print(str(b))
+        print()
+        b.solve()
+        print('solved:')
+        print(str(b))
+        print()
 
 
 if __name__ == "__main__":

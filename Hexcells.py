@@ -178,19 +178,24 @@ class Board:
 
     def solve_basic_constraints(self):
         constraints = self.get_constraints()
+        constraintLoopCount = 0
         while not self.solved():
+            constraintLoopCount += 1
             changeMade = False
             for k, val in constraints.items():
                 for v in val:
                     if k.unknown:
+                        # If all solved, this hex is black
                         if v.value.number - v.num_solved() == 0:
                             k.unknown = False
                             changeMade = True
                             self.numUnknown -= 1
+                        # If there are as many gold hexes as hexes that need to be blue, this hex is blue
                         elif v.value.number - v.num_solved() == v.num_unsolved():
                             k.unknown = False
                             changeMade = True
                             self.numUnknown -= 1
+                        # If this hex is out of range to be adjacent to other solved hexes, this hex is black
                         elif v.value.type == Hex.Type.ADJ:
                             if v.num_solved() > 0:
                                 locs = v.get_solved_locations()
@@ -215,6 +220,7 @@ class Board:
                                         print("ERROR! Adjacent solved incorrectly.")
                                         k.error = True
                                     self.numUnknown -= 1
+                        # If making this hex blue would make all solved hexes adjacent, this hex is black
                         elif v.value.type == Hex.Type.APART:
                             locs = v.get_solved_locations()
                             if len(locs) == v.value.number - 1:
@@ -229,9 +235,12 @@ class Board:
                                             print("ERROR! Apart solved incorrectly.")
                                             k.error = True
                                         self.numUnknown -= 1
+            # Can't solve anymore
             if not changeMade:
                 return
+            # Update constraints with new revealed constraints
             constraints = self.recalculate_constraints()
+        print('Number of times looped through all constraints: ' + str(constraintLoopCount))
 
     def get_unsolved_hex(self, alreadyGuessed):
         for i in range(len(self.columns)):
@@ -243,6 +252,7 @@ class Board:
         return None
 
     def solve_search(self):
+        print('search started')
         constraints = self.get_constraints()
         BLACK = 0
         BLUE = 1
@@ -256,12 +266,14 @@ class Board:
             cur = frontier.pop(0)
             visited.append(cur)
             nextToGuess = self.get_unsolved_hex(list(cur.keys()))
+            # There's nothing left to guess so we're done
             if not nextToGuess:
                 for k, val in cur.items():
                     h = self.columns[k.index[0]][k.index[1]]
                     h.type = Hex.Type.BLUE if val == BLUE else Hex.Type.QUESTION
                     h.unknown = False
                 return
+            # Check if the chosen hex can be blue or black and still be a valid board
             blueValid = True
             blackValid = True
             for g in constraints[nextToGuess]:
@@ -287,6 +299,7 @@ class Board:
                         index = g.items.index(nextToGuess)
                         if g.is_adjacent_to_solved(index):
                             blueValid = False
+            # Add the new nodes to the frontier
             if blueValid:
                 blue = cur.copy()
                 blue[nextToGuess] = BLUE
@@ -400,6 +413,7 @@ class Board:
 
 def main():
     for i in range(1, 7):
+        print('--------------- ' + str(i) + ' ---------------')
         b = Board('input' + str(i) + '.txt')
         print('unsolved')
         print(str(b))
